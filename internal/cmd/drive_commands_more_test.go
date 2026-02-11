@@ -133,10 +133,16 @@ func TestDriveCommands_MoreCoverage(t *testing.T) {
 							http.Error(w, "bad upload metadata", http.StatusBadRequest)
 							return
 						}
-						if mt, _ := req["mimeType"].(string); mt == driveMimeGoogleSheet {
-							sawUploadConvertSheet = true
+						if mtRaw, ok := req["mimeType"]; ok {
+							mt, ok := mtRaw.(string)
+							if !ok {
+								http.Error(w, "invalid upload mime type", http.StatusBadRequest)
+								return
+							}
+							if mt == driveMimeGoogleSheet {
+								sawUploadConvertSheet = true
+							}
 						}
-						break
 					}
 				}
 			}
