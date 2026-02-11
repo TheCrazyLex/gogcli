@@ -96,3 +96,32 @@ func TestGuessMimeTypeMore(t *testing.T) {
 		}
 	}
 }
+
+func TestDriveConvertToMimeType(t *testing.T) {
+	tests := map[string]string{
+		"":      "",
+		"sheet": driveMimeGoogleSheet,
+		"SHEET": driveMimeGoogleSheet,
+	}
+
+	for in, want := range tests {
+		got, err := driveConvertToMimeType(in)
+		if err != nil {
+			t.Fatalf("driveConvertToMimeType(%q): %v", in, err)
+		}
+		if got != want {
+			t.Fatalf("driveConvertToMimeType(%q)=%q want %q", in, got, want)
+		}
+	}
+
+	_, err := driveConvertToMimeType("doc")
+	if err == nil {
+		t.Fatalf("expected invalid convert-to error")
+	}
+	if ExitCode(err) != 2 {
+		t.Fatalf("expected exit code 2, got %d (err=%v)", ExitCode(err), err)
+	}
+	if !strings.Contains(err.Error(), "invalid --convert-to") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}

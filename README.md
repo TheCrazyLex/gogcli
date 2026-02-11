@@ -777,9 +777,11 @@ gog drive search "invoice" --max 20
 gog drive get <fileId>                # Get file metadata
 gog drive url <fileId>                # Print Drive web URL
 gog drive copy <fileId> "Copy Name"
+gog drive copy <fileId> "Sheet Copy" --convert-to sheet
 
 # Upload and download
 gog drive upload ./path/to/file --parent <folderId>
+gog drive upload ./file.xlsx --convert-to sheet
 gog drive download <fileId> --out ./downloaded.bin
 gog drive download <fileId> --format pdf --out ./exported.pdf
 gog drive download <fileId> --format docx --out ./doc.docx

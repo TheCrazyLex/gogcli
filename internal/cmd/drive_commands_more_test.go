@@ -3,6 +3,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -17,6 +18,9 @@ import (
 func TestDriveCommands_MoreCoverage(t *testing.T) {
 	origNew := newDriveService
 	t.Cleanup(func() { newDriveService = origNew })
+
+	sawCopyConvertSheet := false
+	sawUploadConvertSheet := false
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/drive/v3")
@@ -81,12 +85,30 @@ func TestDriveCommands_MoreCoverage(t *testing.T) {
 			})
 			return
 		case r.Method == http.MethodPost && strings.HasSuffix(path, "/copy"):
+			var req map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+				http.Error(w, "bad json", http.StatusBadRequest)
+				return
+			}
+			if mt, _ := req["mimeType"].(string); mt == driveMimeGoogleSheet {
+				sawCopyConvertSheet = true
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":   "copy1",
 				"name": "Copy",
 			})
 			return
 		case r.Method == http.MethodPost && path == "/files":
+			if strings.HasPrefix(r.URL.Path, "/upload/drive/v3") {
+				body, err := io.ReadAll(r.Body)
+				if err != nil {
+					http.Error(w, "bad upload body", http.StatusBadRequest)
+					return
+				}
+				if strings.Contains(string(body), `"mimeType":"`+driveMimeGoogleSheet+`"`) {
+					sawUploadConvertSheet = true
+				}
+			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
 				"id":          "new1",
 				"name":        "New",
@@ -216,6 +238,10 @@ func TestDriveCommands_MoreCoverage(t *testing.T) {
 	if !strings.Contains(out, "\"file\"") {
 		t.Fatalf("unexpected copy json: %q", out)
 	}
+	out = run("--json", "--account", "a@b.com", "drive", "copy", "file1", "Copy as Sheet", "--convert-to", "sheet")
+	if !strings.Contains(out, "\"file\"") {
+		t.Fatalf("unexpected copy(convert) json: %q", out)
+	}
 
 	tmp := filepath.Join(t.TempDir(), "upload.txt")
 	if err := os.WriteFile(tmp, []byte("data"), 0o600); err != nil {
@@ -224,6 +250,10 @@ func TestDriveCommands_MoreCoverage(t *testing.T) {
 	out = run("--json", "--account", "a@b.com", "drive", "upload", tmp)
 	if !strings.Contains(out, "\"file\"") {
 		t.Fatalf("unexpected upload json: %q", out)
+	}
+	out = run("--json", "--account", "a@b.com", "drive", "upload", tmp, "--convert-to", "sheet")
+	if !strings.Contains(out, "\"file\"") {
+		t.Fatalf("unexpected upload(convert) json: %q", out)
 	}
 
 	out = run("--account", "a@b.com", "drive", "mkdir", "Folder")
@@ -271,5 +301,11 @@ func TestDriveCommands_MoreCoverage(t *testing.T) {
 	out = run("--json", "--force", "--account", "a@b.com", "drive", "delete", "file1")
 	if !strings.Contains(out, "\"deleted\"") {
 		t.Fatalf("unexpected delete json: %q", out)
+	}
+	if !sawCopyConvertSheet {
+		t.Fatalf("expected copy --convert-to sheet to set mimeType=%q", driveMimeGoogleSheet)
+	}
+	if !sawUploadConvertSheet {
+		t.Fatalf("expected upload --convert-to sheet to set mimeType=%q", driveMimeGoogleSheet)
 	}
 }
