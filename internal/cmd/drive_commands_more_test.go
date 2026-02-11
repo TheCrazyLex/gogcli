@@ -3,7 +3,10 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -100,13 +103,47 @@ func TestDriveCommands_MoreCoverage(t *testing.T) {
 			return
 		case r.Method == http.MethodPost && path == "/files":
 			if strings.HasPrefix(r.URL.Path, "/upload/drive/v3") {
-				body, err := io.ReadAll(r.Body)
+				_, params, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 				if err != nil {
-					http.Error(w, "bad upload body", http.StatusBadRequest)
+					http.Error(w, "bad upload content type", http.StatusBadRequest)
 					return
 				}
-				if strings.Contains(string(body), `"mimeType":"`+driveMimeGoogleSheet+`"`) {
-					sawUploadConvertSheet = true
+				boundary := params["boundary"]
+				if boundary == "" {
+					http.Error(w, "missing upload boundary", http.StatusBadRequest)
+					return
+				}
+				reader := multipart.NewReader(r.Body, boundary)
+				for {
+					part, err := reader.NextPart()
+					if errors.Is(err, io.EOF) {
+						break
+					}
+					if err != nil {
+						http.Error(w, "bad upload part", http.StatusBadRequest)
+						return
+					}
+					partType, _, err := mime.ParseMediaType(part.Header.Get("Content-Type"))
+					if err != nil {
+						partType = part.Header.Get("Content-Type")
+					}
+					if partType == "application/json" {
+						var req map[string]any
+						if err := json.NewDecoder(part).Decode(&req); err != nil {
+							http.Error(w, "bad upload metadata", http.StatusBadRequest)
+							return
+						}
+						if mtRaw, ok := req["mimeType"]; ok {
+							mt, ok := mtRaw.(string)
+							if !ok {
+								http.Error(w, "invalid upload mime type", http.StatusBadRequest)
+								return
+							}
+							if mt == driveMimeGoogleSheet {
+								sawUploadConvertSheet = true
+							}
+						}
+					}
 				}
 			}
 			_ = json.NewEncoder(w).Encode(map[string]any{
